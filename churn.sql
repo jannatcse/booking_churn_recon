@@ -1,22 +1,21 @@
---churn@202502040041
+--churn@202502052359
  with churn_filtered as (
 select
 	*
 from
-	jannat.churns ch
+	jannat.churn ch
 where
 	extract(month
 from
-	ch."Renewal Contract Start Date") in (10, 11, 12)
-	and replace(ch.amount,
-	',',
-	'')::float < 0.00)
+	ch."Renewal Contract Start Date"::date) in (1)
+	and "Churn Amount(USD)"< 0.00)
             ,
 agg_churn as (
 select
 	mcid as "Master Customer ID",
-	SUM(replace(bf.amount, ',', '')::float) as total_recurring_amount,
-	array_agg(bf."Opportunity ID (18)") as opportunity_id,
+--	SUM(replace(bf."Churn Amount(USD)", ',', '')::float) as total_recurring_amount,
+	sum(bf."Churn Amount(USD)") as total_recurring_amount,
+	array_agg(bf."Opportunity ID") as opportunity_id,
 	sum("Renewal Baseline (converted)") churn_local_currency
 from
 	churn_filtered bf
@@ -26,13 +25,13 @@ group by
 sst_filtered as (
 select
 	master_customer_id,
-	sum(arr_usd_ccfx::float) as arr_usd_ccfx,
+	sum("ARR USD Converted 2025"::float) as arr_usd_ccfx,
 	sum(baseline_arr_local_currency::float) as " ARR LCU TTL Customer Movement "
 from
-	jannat.sst_to_adaptive_last_months
+	jannat.sst_adaptive_new1
 where
 	"Type" = 'Account Name Customer Bridge'
-	and snapshot_date between '2024-10-31' and '2024-12-31'
+	and snapshot_date between '2025-01-01' and '2025-03-31'
 group by
 	1)
             ,
@@ -59,7 +58,7 @@ select
 	coalesce(b.churn_local_currency,
 	0) as churn_local_currency
 from
-	jannat.customer_deetails_churn c
+	jannat.customer_details1 c
 left join agg_churn b
                                                  on
 	c.mcid = b."Master Customer ID"
@@ -83,100 +82,22 @@ where
 		or coalesce(churn_amount_usd_filled,
 		0) < 0)
            ,
-historical_churn_filtered_current_prev1_quarter as (
-select
-	*
-from
-	jannat.his_churn
-where
-	"Loss Amount (USD)"::float < 0.00
-	and
-                                                                      extract(month
-from
-	cast("Renewal Contract Start Date" as date)) in
-                                                                      (7, 8, 9))
-            ,
-agg_historical_churn_prev1_quarter
-             as (
-select
-	hb."Account Name: Master Customer ID" as "Master Customer ID",
-	SUM(hb."Loss Amount (USD)"::float) as prev1_quarter_revenue
-from
-	historical_churn_filtered_current_prev1_quarter hb
-group by
-	"Master Customer ID")
-            ,
-prev1_quarter_churns as (
-select
-	--         ahb."Master Customer ID",
-	bf.*,
-	(ahb.prev1_quarter_revenue::float) as prev1_quarter_revenue
-from
-	merged_with_flags bf
-left join
-                                            agg_historical_churn_prev1_quarter ahb
-                                            on
-	bf.mcid = ahb."Master Customer ID")
-            ,
-historical_churn_filtered_current_prev2_quarter as (
-select
-	*
-from
-	jannat.his_churn
-where
-	"Loss Amount (USD)"::float < 0.00
-	and
-                                                                      extract(month
-from
-	cast("Renewal Contract Start Date" as date)) in
-                                                                      (4, 5, 6))
-            ,
-agg_historical_churn_prev2_quarter
-             as (
-select
-	hb."Account Name: Master Customer ID" as "Master Customer ID",
-	SUM(hb."Loss Amount (USD)"::float) as prev2_quarter_revenue
-from
-	historical_churn_filtered_current_prev2_quarter hb
-group by
-	"Master Customer ID")
-            ,
-prev2_quarter_churns as (
-select
-	bf.*,
-	(ahb.prev2_quarter_revenue::float) as prev2_quarter_revenue
-from
-	prev1_quarter_churns bf
-left join
-                                            agg_historical_churn_prev2_quarter ahb
-                                            on
-	bf.mcid = ahb."Master Customer ID")
-            ,
-historical_churns_final as (
-select
-	b1.*,
-	ABS(b1.arr_usd_ccfx - b1.prev1_quarter_revenue) as absolute_churn_prev1_diff,
-	ABS(b1.arr_usd_ccfx - b1.prev2_quarter_revenue) as absolute_churn_prev2_diff
-from
-	prev2_quarter_churns b1
-                                          )
-                      ,
 migration_ramp_price_uplift_winback as (
 select
 	saex.*,
 	case
-		when saex."Bridge_Account" in
+		when saex."bridge_account" in
                                                                       ('Downgrade - migration', 'Downsell - migration')
                                                                      then 'Downsell_Downgrade_Migration'
-		when saex."Bridge_Account" in
+		when saex."bridge_account" in
                                                                       ('Price Uplift Reversal', 'Up Sell Reversal',
                                                                        'Price Ramp Reversal', 'Cross-sell Reversal')
                                                                      then 'Reversal'
 	end as bridge
 from
-	jannat.sst_to_adaptive_last_months saex
+	jannat.sst_adaptive_new1 saex
 where
-	saex.snapshot_date between '2024-10-31' and '2024-12-31'
+	saex.snapshot_date between '2025-01-01' and '2025-03-31'
 	and saex."Type" = 'Account Name Customer Bridge')
             ,
 mrpuw_calc as (
@@ -215,7 +136,7 @@ select
 	end)
                                                                                 as reversal_diff_percent
 from
-	historical_churns_final hl
+	merged_with_flags hl
 left join mrpuw_calc on
 	hl.mcid = mrpuw_calc.master_customer_id)
     ,
@@ -234,10 +155,6 @@ select
 	df.churn_local_currency,
 	df.diff as churn_variance,
 	df.abs_diff as abs_churn_variance,
-	coalesce(df.prev1_quarter_revenue,
-	0) as prev1_quarter_revenue,
-	coalesce(df.prev2_quarter_revenue,
-	0) as prev2_quarter_revenue,
 	df.downsell_downgrade_migration,
 	df.Reversal,
 	----------
@@ -275,103 +192,33 @@ select
 	from
 		diff_mrpuw as df
                              )
-            ,
-warehouse_churn_data_load as (
-select
-	master_customer_id as mcid,
-	extract(month
-from
-	ss.snapshot_date) as mon,
-	sum(arr_usd_ccfx::float)::numeric as arr_usd_ccfx
-from
-	jannat.sst_to_adaptive_last_months ss
-where
-	ss."Type" = 'Account Name Customer Bridge'
-	and snapshot_date between '2024-04-01' and '2024-09-30'
-	and arr_usd_ccfx::float < 0.0
-	--                                             and master_customer_id='e1fd96cd-9622-3c56-4ab4-7ba22c6d0f44'
-group by
-	1,
-	2)
-----
---            , historical_labeling AS (
+--   , historical_labeling AS (
             select
 	hb.mcid,
 	hb.opportunity_id,
 	hb.name,
-	hb.churn_amount_usd,
+	hb.SF_churns as churn_amount_usd,
 	hb.arr_usd_ccfx,
-	hb.churn_amount_usd_filled,
-	hb.arr_usd_ccfx_filled,
+	coalesce(hb.SF_churns,0) as churn_amount_usd_filled,
+	coalesce(hb.arr_usd_ccfx,0) as arr_usd_ccfx_filled,
 	hb." ARR LCU TTL Customer Movement ",
-	hb.diff,
-	hb.abs_diff,
-	--                                     hb.current_quarter_revenue,
-	hb.prev1_quarter_revenue,
-	hb.prev2_quarter_revenue,
-	hb.absolute_churn_prev1_diff,
-	hb.absolute_churn_prev2_diff,
+	churn_variance as diff,
+	ABS(churn_variance) as abs_diff,
 	hb.churn_local_currency,
+	SF_churns,
+	churn_variance ,
+	null as celigo_start_date,
+	downsell_downgrade_migration,
+	reversal,
 	case
-		when fd.label = 'Need to label'
-		and hb.diff <> 0
-		and
-                                                      (hb.prev1_quarter_revenue / hb.diff) * 100 between 95 and 105
-                                                     then 'SF Loss in prior period'
-		when fd.label = 'Need to label'
-		and hb.diff <> 0
-		and
-                                                      (hb.prev2_quarter_revenue / hb.diff) * 100 between 95 and 105
-                                                     then 'SF Loss in prior period'
-		when 
-                        ((ABS(coalesce(fd.arr_usd_ccfx,
-		0)) = 0
-			and
-                          ABS(coalesce(fd.SF_churns,
-			0)) <> 0)
-			or
-                         (
-                             ABS(coalesce(fd.arr_usd_ccfx,
-			0)) <> 0
-				and
-                             ABS(coalesce(fd.SF_churns,
-				0)) <> 0
-					and ABS(coalesce(fd.SF_churns,
-					0)) >
-                                     ABS(coalesce(fd.arr_usd_ccfx,
-					0))
-                             ))
-		and (
-                            fd.churn_variance <> 0
-			and fd.mcid = wd.mcid
-			and
-                            ABS(coalesce(wd.arr_usd_ccfx,
-			0)) /
-                            ABS(coalesce(fd.churn_variance,
-			0)) *
-                            100 between 95 and 100
-                            )
-                        then
-	                        case
-			when (fd.label = 'Need to label'
-				or fd.label = '')
-	                                then 'DWH loss in prior period'
-			else fd.label
-		end
-		when (fd.label = 'N'
-			or fd.label = 'Need to label'
-			or fd.label = '')
-		and churn_amount_usd_filled < 0
-		and arr_usd_ccfx_filled < 0
-		and abs_diff < 100 then 'Immaterial'
-		else fd.label
+		when (hb.label = 'N'
+			or hb.label = 'Need to label'
+			or hb.label = '')
+		and coalesce(hb.SF_churns,0) < 0
+		and coalesce(hb.arr_usd_ccfx,0) < 0
+		and ABS(churn_variance) < 100 
+	then 'Immaterial'
+	else hb.label
 	end as label
 from
-	final_data fd
-left join
-                                      historical_churns_final hb
-                                      on
-	hb.mcid = fd.mcid
-left join warehouse_churn_data_load wd on
-	wd.mcid = fd.mcid
-	--                                      )
+	final_data hb

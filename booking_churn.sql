@@ -1,46 +1,47 @@
--- final_merge_data@202501040151
+-- final_merge_data@202502052359
+with final_output as(
 with bookings as (
---booking@202502040036
+--booking@202502052359
  with booking_filtered as (
 select
 	*
 from
-	jannat.bookings_dec24
+	jannat.bookings
 where
-	"Month # - Close Date" in (10, 11, 12))
+	"Month # - Close Date" in (1))
                 ,
 agg_booking as (
 select
 	"Master Customer ID",
-	SUM("recurring_revenue"::float) as total_recurring_amount,
-	sum(BTRIM(replace(right("Recurring Software Amount Change",
-                                                                 length("Recurring Software Amount Change") - 3), ',',
+   SUM(BTRIM(replace(REPLACE("Recurring Software Amount Change (converted)",'USD ',''),',',''))::float) as total_recurring_amount,
+	sum(BTRIM(replace(right("Recurring Software Amount Change", 
+      length("Recurring Software Amount Change") - 3), ',',
                                                            ''))::float) bookings_local_currency,
 	array_agg("Opportunity ID") as opportunity_id
 from
 	booking_filtered bf
 group by
-	1)
+	1
+	)
                 ,
 sst_filtered as (
 select
 	master_customer_id,
-	sum(arr_usd_ccfx::float) as arr_usd_ccfx,
+	sum("ARR USD Converted 2025"::float) as arr_usd_ccfx,
 	sum(baseline_arr_local_currency::float) as " ARR LCU TTL Customer Movement "
 from
-	jannat.sst_to_adaptive_export_03012025_1520
+	jannat.sst_adaptive_new1
 where
-	type = 'Account Name Customer Bridge'
-	and snapshot_date between '2024-10-31' and '2024-12-31'
+	"Type" = 'Account Name Customer Bridge'
+	and snapshot_date between '2025-01-01' and '2025-03-31'
 group by
 	1
-	--            ,3
              )
                 ,
 uniue_bookings_date_mcid_data as (
 select
 	distinct "Master Customer ID",
-	"Celigo[AT]_Start Date",
+	"Celigo[AT]_Start Date" AS "Celigo[AT]_Start Date",
 	"Opportunity ID"
 from
 	booking_filtered)
@@ -57,7 +58,7 @@ group by
                 ,
 merged_data as (
 select
-	c.epi_universal_id as mcid,
+--	c.mcid as mcid,
 	b.opportunity_id,
 	c.*,
 	b.total_recurring_amount as booking_amount_usd,
@@ -71,16 +72,17 @@ select
 	0) as bookings_local_currency,
 	latest_celigo.latest_celigo_start_date as celigo_start_date
 from
-	jannat.customer_detail_20250105 c
+	jannat.customer_details1 c
 left join agg_booking b
                                                      on
-	c.epi_universal_id = b."Master Customer ID"
+	c.mcid = b."Master Customer ID"
 left join sst_filtered a
                                                      on
-	c.epi_universal_id = a.master_customer_id
+	c.mcid = a.master_customer_id
 left join latest_celigo
                                                      on
-	latest_celigo."Master Customer ID" = c.epi_universal_id)
+	latest_celigo."Master Customer ID" = c.mcid
+	)
                 ,
 merged_with_flags as (
 select
@@ -88,12 +90,10 @@ select
 	case
 		when booking_amount_usd is null
 			and arr_usd_ccfx is not null
-			--                                           THEN 'ARR not in booking'
-                                                       then 'Need to label'
+        then 'Need to label'
 			when booking_amount_usd is not null
 			and arr_usd_ccfx is null
-			--                                           THEN 'Booking not in ARR'
-                                                       then 'Need to label'
+         then 'Need to label'
 			else 'Need to label'
 		end as missing_flag,
 		arr_usd_ccfx_filled - booking_amount_usd_filled as diff,
@@ -110,15 +110,16 @@ historical_booking_filtered_current_quarter as (
 select
 	*
 from
-	jannat.dec_2024
+	jannat.current_month
 where
-	"Month # - Close Date" in (10, 11, 12))
+	"Month # - Close Date" in (1))
 -------===========CURRENT MONTH START===========-------==============
                 ,
 agg_historical_booking_current_quarter as (
 select
 	"Master Customer ID",
-	SUM(hb.recurring_revenue::float) as "current_quarter_revenue"
+--	SUM(hb.recurring_revenue::float) as "current_quarter_revenue"
+	SUM(BTRIM(replace(REPLACE("Recurring Software Amount Change (converted)",'USD ',''),',',''))::float) as "current_quarter_revenue"
 from
 	historical_booking_filtered_current_quarter hb
 group by
@@ -132,8 +133,8 @@ select
 from
 	merged_with_flags bf
 left join
-                                                    agg_historical_booking_current_quarter ahb
-                                                    on
+agg_historical_booking_current_quarter ahb
+ on
 	bf.mcid = ahb."Master Customer ID")
 -------===========CURRENT MONTH END===========-------===============
                 ,
@@ -141,14 +142,15 @@ historical_booking_filtered_current_prev1_quarter as (
 select
 	*
 from
-	jannat.quartar_3_2024
+	jannat.previous_quarter1
 where
-	"Month # - Close Date" in (7, 8, 9))
-                ,
-agg_historical_booking_prev1_quarter as (
+	"Month # - Close Date" in (10,11,12))
+ ,
+ agg_historical_booking_prev1_quarter as (
 select
 	"Master Customer ID",
-	SUM(hb.recurring_revenue::float) as prev1_quarter_revenue
+--	SUM(hb.recurring_revenue::float) as prev1_quarter_revenue
+	SUM(BTRIM(replace(REPLACE("Recurring Software Amount Change (converted)",'USD ',''),',',''))::float) as prev1_quarter_revenue
 from
 	historical_booking_filtered_current_prev1_quarter hb
 group by
@@ -163,22 +165,23 @@ select
 from
 	current_quarter_bookings bf
 left join
-                                                  agg_historical_booking_prev1_quarter ahb
-                                                  on
+agg_historical_booking_prev1_quarter ahb
+on
 	bf.mcid = ahb."Master Customer ID")
                 ,
 historical_booking_filtered_current_prev2_quarter as (
 select
 	*
 from
-	jannat.quartar_2_2024
+	jannat.previous_quarter2
 where
-	"Month # - Close Date" in (4, 5, 6))
+	"Month # - Close Date" in (7,8,9))
                 ,
 agg_historical_booking_prev2_quarter as (
 select
 	"Master Customer ID",
-	SUM(hb.recurring_revenue::float) as prev2_quarter_revenue
+--	SUM(hb.recurring_revenue::float) as prev2_quarter_revenue
+	SUM(BTRIM(replace(REPLACE("Recurring Software Amount Change (converted)",'USD ',''),',',''))::float)as prev2_quarter_revenue
 from
 	historical_booking_filtered_current_prev2_quarter hb
 group by
@@ -192,8 +195,8 @@ select
 from
 	prev1_quarter_bookings bf
 left join
-                                                  agg_historical_booking_prev2_quarter ahb
-                                                  on
+ agg_historical_booking_prev2_quarter ahb
+  on
 	bf.mcid = ahb."Master Customer ID")
                 ,
 historical_bookings_final as (
@@ -209,49 +212,38 @@ select
 	saex.*,
 	case
 		when saex.bridge_account in
-                                                                          ('Cross-sell - migration',
-                                                                           'Up Sell - migration')
-                                                                         then 'Upsell_Cross-sell_Migration'
-		--                                                                     WHEN saex.bridge_account in
-		--                                                                          ('Downgrade - migration',
-		--                                                                           'Downsell - migration')
-		--                                                                         THEN 'Downsell_Downgrade_Migration'
-		when saex.bridge_account in
-                                                                          ('Win back Downgrade', 'Win back Downsell',
-                                                                           'Winback',
-                                                                           'Lapsed Renewal')
-                                                                         then 'Winback'
-		when saex.bridge_account = 'Price Ramp'
-                                                                         then 'Price Ramp'
+         ('Cross-sell - migration','Up Sell - migration')
+         then 'Upsell_Cross-sell_Migration'
+		when saex.bridge_account in 
+		('Win back Downgrade', 'Win back Downsell','Winback','Lapsed Renewal')
+        then 'Winback'
+		when saex.bridge_account = 'Price Ramp' 
+		then 'Price Ramp'
 		when saex.bridge_account = 'Price Uplift'
-                                                                         then 'Price Uplift'
+        then 'Price Uplift'
 	end as bridge
 from
-	jannat.sst_to_adaptive_export_03012025_1520 saex
+	jannat.sst_adaptive_new1 saex
 where
-	saex.snapshot_date between '2024-10-31' and '2024-12-31'
-	and saex.type = 'Account Name Customer Bridge')
+	saex.snapshot_date between '2025-01-01' and '2025-03-31'
+	and saex."Type" = 'Account Name Customer Bridge')
                 ,
 mrpuw_calc as (
 select
 	mrp.master_customer_id,
-	SUM(coalesce(case
-                                                         when mrp.bridge = 'Upsell_Cross-sell_Migration'
-                                                             then mrp.arr_usd_ccfx
-                                                         else 0 end, 0)) as upsell_cross_sell_migration,
-	--                                        SUM(COALESCE(CASE
-	--                                                         WHEN mrp.bridge = 'Downsell_Downgrade_Migration'
-	--                                                             THEN mrp.arr_usd_ccfx
-	--                                                         ELSE 0 END,
-	--                                                     0))                 AS downsell_downgrade_migration,
 	SUM(coalesce(
-                                                case when mrp.bridge = 'Price Ramp' then mrp.arr_usd_ccfx else 0 end,
-                                                0)) as price_ramp,
+	case
+        when mrp.bridge = 'Upsell_Cross-sell_Migration'
+        then mrp.arr_usd_ccfx
+         else 0 end, 0)) as upsell_cross_sell_migration,
 	SUM(coalesce(
-                                                case when mrp.bridge = 'Price Uplift' then mrp.arr_usd_ccfx else 0 end,
-                                                0)) as price_uplift,
+      case when mrp.bridge = 'Price Ramp' then mrp.arr_usd_ccfx else 0 end,
+      0)) as price_ramp,
+	SUM(coalesce(
+     case when mrp.bridge = 'Price Uplift' then mrp.arr_usd_ccfx else 0 end,
+     0)) as price_uplift,
 	SUM(coalesce(case when mrp.bridge = 'Winback' then mrp.arr_usd_ccfx else 0 end,
-                                                     0)) as winback
+    0)) as winback
 from
 	migration_ramp_price_uplift_winback as mrp
 group by
@@ -261,29 +253,20 @@ diff_mrpuw as (
 select
 	hl.*,
 	mrpuw_calc.upsell_cross_sell_migration,
-	--                                        mrpuw_calc.downsell_downgrade_migration,
 	mrpuw_calc.price_ramp,
 	mrpuw_calc.price_uplift,
 	mrpuw_calc.winback,
 	ABS(hl.abs_diff - mrpuw_calc.upsell_cross_sell_migration)::int as upsell_cross_sell_migration_diff,
-	--                                        ABS(hl.abs_diff - mrpuw_calc.downsell_downgrade_migration)::int AS downsell_downgrade_migration_diff,
 	ABS(hl.abs_diff - mrpuw_calc.price_ramp)::int as price_ramp_diff,
 	ABS(hl.abs_diff - mrpuw_calc.price_uplift)::int as price_uplift_diff,
 	ABS(hl.abs_diff - mrpuw_calc.winback)::int as winback_diff,
 	ROUND(case
 		when hl.abs_diff > 0 then
-                                                      ABS(mrpuw_calc.upsell_cross_sell_migration::float / hl.abs_diff) *
+        ABS(mrpuw_calc.upsell_cross_sell_migration::float / hl.abs_diff) *
                                                       100::int
 		else 0
-	end)
-                                                                                                       as upsell_cross_sell_migration_diff_percent,
-	--                                        ROUND(CASE
-	--                                                  WHEN hl.abs_diff > 0 THEN
-	--                                                      ABS(mrpuw_calc.downsell_downgrade_migration::float / hl.abs_diff) *
-	--                                                      100::int
-	--                                                  ELSE 0 END)
-	--                                                                                                        AS downsell_downgrade_migration_diff_percent,
-	ROUND(case
+	end) as upsell_cross_sell_migration_diff_percent,
+     ROUND(case
 		when hl.abs_diff > 0 then
                                                       ABS(mrpuw_calc.price_ramp::float / hl.abs_diff) * 100::int
 		else 0
@@ -382,7 +365,7 @@ select
 				df.price_uplift,
 				df.winback,
 				df.upsell_cross_sell_migration)
-                                                    		= df.upsell_cross_sell_migration then 'Upsell & Cross-sell Migration'
+                                                    		= df.upsell_cross_sell_migration then 'Migration'
 				else missing_flag
 			end
 			else missing_flag
@@ -435,7 +418,7 @@ select
 			and hb.prev1_quarter_revenue > 0
 			and
                                                           hb.absolute_booking_prev1_diff <= 1000
-                                                         then 'Booked previously, starts now'
+                                                         then 'Booking Deferral'
 			when  
                                                           (hb.booking_amount_usd = 0
 				or hb.booking_amount_usd is null)
@@ -443,19 +426,19 @@ select
 			and hb.prev2_quarter_revenue > 0
 			and
                                                           hb.absolute_booking_prev2_diff <= 1000
-                                                         then 'Booked previously, starts now'
+                                                         then 'Booking Deferral'
 			when 
-                                                booking_amount_usd_filled > 0
+            booking_amount_usd_filled > 0
 			and arr_usd_ccfx_filled > 0
 			and abs_diff < 1000 then 'Immaterial'
 			else
         	case
 				when   
-                                                        fd.celigo_start_date >= '2024-12-26'
+                  fd.celigo_start_date >= '2025-01-26'
 				--bnsl_date
 				and (fd.arr_usd_ccfx = 0
 					or fd.arr_usd_ccfx is null)
-                                                            then 'Booked now, starts later'
+                                                            then 'Booking Lag'
 				else 'Need to label'
 			end
 		end
@@ -470,25 +453,24 @@ left join
 	--                                         
 )
 ,churn as (
---churn@202502040041
+--churn@202502052359
  with churn_filtered as (
 select
 	*
 from
-	jannat.churns ch
+	jannat.churn ch
 where
 	extract(month
 from
-	ch."Renewal Contract Start Date") in (10, 11, 12)
-	and replace(ch.amount,
-	',',
-	'')::float < 0.00)
+	ch."Renewal Contract Start Date"::date) in (1)
+	and "Churn Amount(USD)"< 0.00)
             ,
 agg_churn as (
 select
 	mcid as "Master Customer ID",
-	SUM(replace(bf.amount, ',', '')::float) as total_recurring_amount,
-	array_agg(bf."Opportunity ID (18)") as opportunity_id,
+--	SUM(replace(bf."Churn Amount(USD)", ',', '')::float) as total_recurring_amount,
+	sum(bf."Churn Amount(USD)") as total_recurring_amount,
+	array_agg(bf."Opportunity ID") as opportunity_id,
 	sum("Renewal Baseline (converted)") churn_local_currency
 from
 	churn_filtered bf
@@ -498,13 +480,13 @@ group by
 sst_filtered as (
 select
 	master_customer_id,
-	sum(arr_usd_ccfx::float) as arr_usd_ccfx,
+	sum("ARR USD Converted 2025"::float) as arr_usd_ccfx,
 	sum(baseline_arr_local_currency::float) as " ARR LCU TTL Customer Movement "
 from
-	jannat.sst_to_adaptive_last_months
+	jannat.sst_adaptive_new1
 where
 	"Type" = 'Account Name Customer Bridge'
-	and snapshot_date between '2024-10-31' and '2024-12-31'
+	and snapshot_date between '2025-01-01' and '2025-03-31'
 group by
 	1)
             ,
@@ -531,7 +513,7 @@ select
 	coalesce(b.churn_local_currency,
 	0) as churn_local_currency
 from
-	jannat.customer_deetails_churn c
+	jannat.customer_details1 c
 left join agg_churn b
                                                  on
 	c.mcid = b."Master Customer ID"
@@ -555,100 +537,22 @@ where
 		or coalesce(churn_amount_usd_filled,
 		0) < 0)
            ,
-historical_churn_filtered_current_prev1_quarter as (
-select
-	*
-from
-	jannat.his_churn
-where
-	"Loss Amount (USD)"::float < 0.00
-	and
-                                                                      extract(month
-from
-	cast("Renewal Contract Start Date" as date)) in
-                                                                      (7, 8, 9))
-            ,
-agg_historical_churn_prev1_quarter
-             as (
-select
-	hb."Account Name: Master Customer ID" as "Master Customer ID",
-	SUM(hb."Loss Amount (USD)"::float) as prev1_quarter_revenue
-from
-	historical_churn_filtered_current_prev1_quarter hb
-group by
-	"Master Customer ID")
-            ,
-prev1_quarter_churns as (
-select
-	--         ahb."Master Customer ID",
-	bf.*,
-	(ahb.prev1_quarter_revenue::float) as prev1_quarter_revenue
-from
-	merged_with_flags bf
-left join
-                                            agg_historical_churn_prev1_quarter ahb
-                                            on
-	bf.mcid = ahb."Master Customer ID")
-            ,
-historical_churn_filtered_current_prev2_quarter as (
-select
-	*
-from
-	jannat.his_churn
-where
-	"Loss Amount (USD)"::float < 0.00
-	and
-                                                                      extract(month
-from
-	cast("Renewal Contract Start Date" as date)) in
-                                                                      (4, 5, 6))
-            ,
-agg_historical_churn_prev2_quarter
-             as (
-select
-	hb."Account Name: Master Customer ID" as "Master Customer ID",
-	SUM(hb."Loss Amount (USD)"::float) as prev2_quarter_revenue
-from
-	historical_churn_filtered_current_prev2_quarter hb
-group by
-	"Master Customer ID")
-            ,
-prev2_quarter_churns as (
-select
-	bf.*,
-	(ahb.prev2_quarter_revenue::float) as prev2_quarter_revenue
-from
-	prev1_quarter_churns bf
-left join
-                                            agg_historical_churn_prev2_quarter ahb
-                                            on
-	bf.mcid = ahb."Master Customer ID")
-            ,
-historical_churns_final as (
-select
-	b1.*,
-	ABS(b1.arr_usd_ccfx - b1.prev1_quarter_revenue) as absolute_churn_prev1_diff,
-	ABS(b1.arr_usd_ccfx - b1.prev2_quarter_revenue) as absolute_churn_prev2_diff
-from
-	prev2_quarter_churns b1
-                                          )
-                      ,
 migration_ramp_price_uplift_winback as (
 select
 	saex.*,
 	case
-		when saex."Bridge_Account" in
+		when saex."bridge_account" in
                                                                       ('Downgrade - migration', 'Downsell - migration')
                                                                      then 'Downsell_Downgrade_Migration'
-		when saex."Bridge_Account" in
+		when saex."bridge_account" in
                                                                       ('Price Uplift Reversal', 'Up Sell Reversal',
                                                                        'Price Ramp Reversal', 'Cross-sell Reversal')
                                                                      then 'Reversal'
 	end as bridge
 from
-	jannat.sst_to_adaptive_last_months saex
+	jannat.sst_adaptive_new1 saex
 where
-	saex.snapshot_date between '2024-10-31' and '2024-12-31'
+	saex.snapshot_date between '2025-01-01' and '2025-03-31'
 	and saex."Type" = 'Account Name Customer Bridge')
             ,
 mrpuw_calc as (
@@ -687,7 +591,7 @@ select
 	end)
                                                                                 as reversal_diff_percent
 from
-	historical_churns_final hl
+	merged_with_flags hl
 left join mrpuw_calc on
 	hl.mcid = mrpuw_calc.master_customer_id)
     ,
@@ -706,10 +610,6 @@ select
 	df.churn_local_currency,
 	df.diff as churn_variance,
 	df.abs_diff as abs_churn_variance,
-	coalesce(df.prev1_quarter_revenue,
-	0) as prev1_quarter_revenue,
-	coalesce(df.prev2_quarter_revenue,
-	0) as prev2_quarter_revenue,
 	df.downsell_downgrade_migration,
 	df.Reversal,
 	----------
@@ -747,42 +647,18 @@ select
 	from
 		diff_mrpuw as df
                              )
-            ,
-warehouse_churn_data_load as (
-select
-	master_customer_id as mcid,
-	extract(month
-from
-	ss.snapshot_date) as mon,
-	sum(arr_usd_ccfx::float)::numeric as arr_usd_ccfx
-from
-	jannat.sst_to_adaptive_last_months ss
-where
-	ss."Type" = 'Account Name Customer Bridge'
-	and snapshot_date between '2024-04-01' and '2024-09-30'
-	and arr_usd_ccfx::float < 0.0
-	--                                             and master_customer_id='e1fd96cd-9622-3c56-4ab4-7ba22c6d0f44'
-group by
-	1,
-	2)
-----
---            , historical_labeling AS (
+--   , historical_labeling AS (
             select
 	hb.mcid,
 	hb.opportunity_id,
 	hb.name,
-	hb.churn_amount_usd,
+	hb.SF_churns as churn_amount_usd,
 	hb.arr_usd_ccfx,
-	hb.churn_amount_usd_filled,
-	hb.arr_usd_ccfx_filled,
+	coalesce(hb.SF_churns,0) as churn_amount_usd_filled,
+	coalesce(hb.arr_usd_ccfx,0) as arr_usd_ccfx_filled,
 	hb." ARR LCU TTL Customer Movement ",
-	hb.diff,
-	hb.abs_diff,
-	--                                     hb.current_quarter_revenue,
-	hb.prev1_quarter_revenue,
-	hb.prev2_quarter_revenue,
-	hb.absolute_churn_prev1_diff,
-	hb.absolute_churn_prev2_diff,
+	churn_variance as diff,
+	ABS(churn_variance) as abs_diff,
 	hb.churn_local_currency,
 	SF_churns,
 	churn_variance ,
@@ -790,67 +666,17 @@ group by
 	downsell_downgrade_migration,
 	reversal,
 	case
-		when fd.label = 'Need to label'
-		and hb.diff <> 0
-		and
-                                                      (hb.prev1_quarter_revenue / hb.diff) * 100 between 95 and 105
-                                                     then 'SF Loss in prior period'
-		when fd.label = 'Need to label'
-		and hb.diff <> 0
-		and
-                                                      (hb.prev2_quarter_revenue / hb.diff) * 100 between 95 and 105
-                                                     then 'SF Loss in prior period'
-		when 
-                        ((ABS(coalesce(fd.arr_usd_ccfx,
-		0)) = 0
-			and
-                          ABS(coalesce(fd.SF_churns,
-			0)) <> 0)
-			or
-                         (
-                             ABS(coalesce(fd.arr_usd_ccfx,
-			0)) <> 0
-				and
-                             ABS(coalesce(fd.SF_churns,
-				0)) <> 0
-					and ABS(coalesce(fd.SF_churns,
-					0)) >
-                                     ABS(coalesce(fd.arr_usd_ccfx,
-					0))
-                             ))
-		and (
-                            fd.churn_variance <> 0
-			and fd.mcid = wd.mcid
-			and
-                            ABS(coalesce(wd.arr_usd_ccfx,
-			0)) /
-                            ABS(coalesce(fd.churn_variance,
-			0)) *
-                            100 between 95 and 100
-                            )
-                        then
-	                        case
-			when (fd.label = 'Need to label'
-				or fd.label = '')
-	                                then 'DWH loss in prior period'
-			else fd.label
-		end
-		when (fd.label = 'N'
-			or fd.label = 'Need to label'
-			or fd.label = '')
-		and churn_amount_usd_filled < 0
-		and arr_usd_ccfx_filled < 0
-		and abs_diff < 100 then 'Immaterial'
-		else fd.label
+		when (hb.label = 'N'
+			or hb.label = 'Need to label'
+			or hb.label = '')
+		and coalesce(hb.SF_churns,0) < 0
+		and coalesce(hb.arr_usd_ccfx,0) < 0
+		and ABS(churn_variance) < 100 
+	then 'Immaterial'
+	else hb.label
 	end as label
 from
-	final_data fd
-left join
-                                      historical_churns_final hb
-                                      on
-	hb.mcid = fd.mcid
-left join warehouse_churn_data_load wd on
-	wd.mcid = fd.mcid
+	final_data hb
   )
    ,merged_data AS (
    SELECT COALESCE(b.mcid, c.mcid)                           AS "MCID",
@@ -876,8 +702,6 @@ left join warehouse_churn_data_load wd on
                             COALESCE(b.price_ramp, 0)                          AS "Ramp",
                             COALESCE(b.price_uplift, 0)                        AS "Price Uplift",
                             COALESCE(b.winback, 0)                             AS "Win-Back",
-                            COALESCE(c.prev1_quarter_revenue, 0)               AS "Loss in PrevQ1",
-                            COALESCE(c.prev2_quarter_revenue, 0)               AS "Loss in PrevQ2",
                             COALESCE(b.prev1_quarter_revenue, 0)               AS "Bookings in PrevQ1",
                             COALESCE(b.prev2_quarter_revenue, 0)               AS "Bookings in PrevQ2",
                             COALESCE(c.label)                                  AS "Final Loss Recon Category",
@@ -888,37 +712,37 @@ FROM bookings b
 select
 	   md."MCID",
        md."Name",
-       md."ARR USD TTL Customer Movement",
-       md."SF Loss USD",
-       md."Loss Variance USD",
-       md."SF Bookings USD",
-       md."Bookings Variance USD",
-       md." ARR LCU TTL Customer Movement ",
-       md."SF Loss LCU",
-       md."Loss Variance LCU",
-       md."SF Bookings LCU",
-       md."Bookings Variance LCU",
+       md."ARR USD TTL Customer Movement"::float,
+       md."SF Loss USD"::float,
+       md."Loss Variance USD"::float,
+       md."SF Bookings USD"::float,
+       md."Bookings Variance USD"::float,
+       md." ARR LCU TTL Customer Movement "::float,
+       md."SF Loss LCU"::float,
+       md."Loss Variance LCU"::float,
+       md."SF Bookings LCU"::float,
+       md."Bookings Variance LCU"::float,
        REPLACE(REPLACE(array_agg(distinct sb.reference_number)::text, '{', ''), '}', '') AS "Reference number",
        REPLACE(REPLACE(array_agg(distinct sb.salesforce_contract_id)::text, '{', ''), '}',
                '')                                                                       AS "Salesforce Contract ID",
-       md."Celigo Start Date",
-       md."Opportunity ID",
-       md."Reversal",
-       md."(Upsell & Cross-sell Migration)",
-       md."(Downsell & Downgrade Migration)",
-       md."Ramp",
-       md."Price Uplift",
-       md."Win-Back",
-       md."Loss in PrevQ1",
-       md."Loss in PrevQ2",
-       md."Bookings in PrevQ1",
-       md."Bookings in PrevQ2",
+       md."Celigo Start Date"::date,
+       replace(md."Opportunity ID",'NULL','') as "Opportunity ID",
+       md."Reversal"::float,
+       md."(Upsell & Cross-sell Migration)"::float,
+       md."(Downsell & Downgrade Migration)"::float,
+       md."Ramp"::float,
+       md."Price Uplift"::float,
+       md."Win-Back"::float,
+       md."Bookings in PrevQ1"::float,
+       md."Bookings in PrevQ2"::float,
        md."Final Loss Recon Category",
        md."Final Bookings Recon Category"
 FROM merged_data md
          left join
      sandbox_pd.sst_churn_audit_cust sb
      on md."MCID" = sb.master_customer_id
+     and 
+     evaluation_period ='2025M01'
 group by 1,
          2,
          3,
@@ -945,7 +769,41 @@ group by 1,
          24,
          25,
          26
-         ,27
-         ,28
+         )
+         select 
+       "MCID",
+       "Name",
+       "ARR USD TTL Customer Movement"::numeric,
+       "SF Loss USD"::numeric,
+       "Loss Variance USD"::numeric,
+       "SF Bookings USD"::numeric,
+       "Bookings Variance USD"::numeric,
+       " ARR LCU TTL Customer Movement "::numeric,
+       "SF Loss LCU"::numeric,
+       "Loss Variance LCU"::numeric,
+      "SF Bookings LCU"::numeric,
+       "Bookings Variance LCU"::numeric,
+       case 
+       	when "Reference number"='NULL' then ' '
+       	else "Reference number"
+       end"Reference number",
+       case 
+       	when "Salesforce Contract ID"= 'NULL' then ' '
+       	else "Salesforce Contract ID"
+       end "Salesforce Contract ID",
+       "Celigo Start Date"::date,
+      "Opportunity ID",
+       "Reversal"::numeric,
+       "(Upsell & Cross-sell Migration)"::numeric,
+       "(Downsell & Downgrade Migration)"::numeric,
+      "Ramp"::numeric,
+       "Price Uplift"::numeric,
+      "Win-Back"::numeric,
+       "Bookings in PrevQ1"::numeric,
+       "Bookings in PrevQ2"::numeric,
+       "Final Loss Recon Category",
+       "Final Bookings Recon Category"
+       from
+       final_output
         ;
- 
+       
